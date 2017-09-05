@@ -14,12 +14,27 @@ public class CameraExplore : MonoBehaviour {
 	Quaternion quaternionY;
 	Quaternion original;
 
+	private int viewDistance = 3;
+
 	void Awake() {
 		Cursor.lockState = CursorLockMode.Locked;
 		original = transform.localRotation;
 	}
 
 	void LateUpdate () {
+		Vector3 chunkPos = Grid.instance.worldToChunkCoordinates(transform.position);
+
+		foreach(KeyValuePair<Vector3,Chunk> k in Grid.instance.chunks) {
+			Grid.instance.UnloadChunk(k.Key);
+		}
+		for(int x = -viewDistance; x <= viewDistance; x++) {
+			for(int y = -viewDistance; y <= viewDistance; y++) {
+				for(int z = -viewDistance; z <= viewDistance; z++) {
+					Grid.instance.LoadChunk(chunkPos + new Vector3(x,y,z));
+				}
+			}
+		}
+
 		transform.Translate(new Vector3(Input.GetAxis("Horizontal"),Input.GetAxis("Up Down"),Input.GetAxis("Vertical")) * Time.deltaTime * 10);
 
 		float averageRotationX = 0;
@@ -45,9 +60,19 @@ public class CameraExplore : MonoBehaviour {
 			averageRotationY += listRotationY[yi];
 		}
 		averageRotationY /= listRotationY.Count;
-
 		quaternionX = Quaternion.AngleAxis(averageRotationX,Vector3.up);
 		quaternionY = Quaternion.AngleAxis(averageRotationY,Vector3.left);
 		transform.localRotation = original * quaternionX * quaternionY;
     }
+
+	public float ClampAngle(float angle, float min, float max) {
+		angle = angle % 360;
+		if (angle >= -360 && angle <= 360) {
+			if(angle < -360)
+				angle += 360;
+			if(angle > 360)
+				angle -= 360;
+		}
+		return Mathf.Clamp(angle,min,max);
+	}
 }

@@ -1,12 +1,12 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading;
 using UnityEngine;
 
 public class Chunk : MonoBehaviour {
 	private Mesh mesh;
 	private List<Vector3> vertices;
-	//private List<Vector3> normals;
 	private List<int> triangles;
 
 	public float size = 16; //physical width/length/height
@@ -15,19 +15,32 @@ public class Chunk : MonoBehaviour {
 	private float stepSize;
 	private Vector3 offset;
 	private Func<Vector3,bool> sampleFunc;
+	private MeshData result;
 
 	//should the corresponding side have its open face closed
 	public bool[] closeSides = new bool[6] {
-		true, //bottom
-		true, //top
-		true, //left
-		true, //right
-		true, //back
-		true  //front
+		false, //bottom
+		false, //top
+		false, //left
+		false, //right
+		false, //back
+		false  //front
 	};
+
+	public bool Loaded = false;
+
+	private bool meshDataReceived;
 
 	private void Awake () {
 		//Initialize();
+	}
+	private void Update() {
+		//gameObject.SetActive(Loaded);
+		if (meshDataReceived) {
+			Apply(result);
+			meshDataReceived = false;
+		}
+		//Apply(new MeshData(vertices,triangles));
 	}
 	/// <summary>
 	/// Initializes the chunk and generates a mesh
@@ -51,41 +64,51 @@ public class Chunk : MonoBehaviour {
 		triangles = new List<int>();
 
 		stepSize = size / resolution;
-		
-		March();
+
+		GenerateMesh();
     }
 
-	public void March() {
+	public void GenerateMesh() {
 		Clear();
+		generateThread();
+	}
+
+	public void March(Action<MeshData> callback) {
+		List<Vector3> v = new List<Vector3>();
+		List<int> t = new List<int>();
 		for(int y = 0; y < resolution; y++)
 			for(int z = 0; z < resolution; z++)
 				for(int x = 0; x < resolution; x++) {
-					march(x,y,z);
+					march(x,y,z,v,t);
 				}
-		Apply();
+		callback (new MeshData(v,t));
 	}
 
-	public void Apply() {
-		mesh.vertices = vertices.ToArray();
-		/*
-		for (int i = 0; i < vertices.Count; i++) {
-			triangles.Add(i);
-		}
-		*/
-		
-		mesh.triangles = triangles.ToArray();
+	private void generateThread () {
+		ThreadStart thread = delegate {
+			March(OnMeshDataReceived);
+		};
+		new Thread(thread).Start();
+	}
+
+	public void OnMeshDataReceived(MeshData data) {
+		result = data;
+		meshDataReceived = true;
+	}
+
+	public void Apply(MeshData data) {
+		mesh.vertices = data.vertices;
+		mesh.triangles = data.triangles;
 		mesh.RecalculateNormals();
 		GetComponent<MeshCollider>().sharedMesh = mesh;
 		//mesh.normals = normals.ToArray();
 	}
 	public void Clear() {
 		mesh.Clear();
-		vertices.Clear();
-		triangles.Clear();
 		//normals.Clear();
 	}
 
-	private void march (float x,float y,float z) {
+	private void march (float x,float y,float z, List<Vector3> v, List<int> t) {
 		Vector3 position = new Vector3(x,y,z);
 		bool[] cornerValues = new bool[8];
 		int flagIndex = 0;
@@ -118,20 +141,30 @@ public class Chunk : MonoBehaviour {
 				edgeVertices[edge] = (new Vector3(x,y,z) + Lookup.VertexOffset[Lookup.EdgeConnection[edge][0]] + 0.5f * Lookup.EdgeDirection[edge]) * stepSize;
 			}
 		}
-		int vertexCount = vertices.Count;
-		for (int t = 0; t < 5; t++) {
-			if (Lookup.TriangleConnectionTable[flagIndex][3*t] < 0) {
+		int vertexCount = v.Count;
+		for (int ti = 0; ti < 5; ti++) {
+			if (Lookup.TriangleConnectionTable[flagIndex][3*ti] < 0) {
 				break;
 			}
 			for (int corner = 0; corner < 3; corner++) {
-				int vertex = Lookup.TriangleConnectionTable[flagIndex][3 * t + corner];
-				vertices.Add(edgeVertices[vertex]);
-				triangles.Add(vertices.Count - 1);
+				int vertex = Lookup.TriangleConnectionTable[flagIndex][3 * ti + corner];
+				v.Add(edgeVertices[vertex]);
+				t.Add(v.Count - 1);
             }
 		}
 	}
 
-	static class Lookup {
+	public struct MeshData {
+		public Vector3[] vertices;
+		public int[] triangles;
+
+		public MeshData (List<Vector3> v, List<int> t) {
+			vertices = v.ToArray();
+			triangles = t.ToArray();
+		}
+	}
+
+	public struct Lookup {
 		//VertexOffset lists the positions, relative to vertex0, of each of the 8 vertices of a cube
 		public static readonly Vector3[] VertexOffset = new Vector3[8] {
 			new Vector3(0.0f,0.0f,0.0f),new Vector3(1.0f,0.0f,0.0f),new Vector3(1.0f,1.0f,0.0f),new Vector3(0.0f,1.0f,0.0f),
