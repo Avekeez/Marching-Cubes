@@ -1,141 +1,47 @@
-﻿using System;
-using System.Collections;
+﻿using System.Collections;
+using System;
 using System.Collections.Generic;
-using System.Threading;
 using UnityEngine;
 
-public class Chunk : MonoBehaviour {
-	private Mesh mesh;
+public class MeshGenerator {
+	private List<Vector3> vertices;
+	private List<int> triangles;
+	public MeshGenerator() { }
 
-	public float size = 16; //physical width/length/height
-	public int resolution = 16; // dimensions blockwise
-
-	public Vector3 centerPos;
-
-	private float stepSize;
-	private Vector3 offset;
 	private Func<Vector3,bool> sampleFunc;
 
-	//should the corresponding side have its open face closed
-	public bool[] closeSides = new bool[6] {
-		false, //bottom
-		false, //top
-		false, //left
-		false, //right
-		false, //back
-		false  //front
-	};
-
-	public bool Loaded = false;
-
-	/// <summary>
-	/// Initializes the chunk and generates a mesh
-	/// </summary>
-	/// <param name="chunkX">x position in chunk coordinates</param>
-	/// <param name="chunkY">y position in chunk coordinates</param>
-	/// <param name="chunkZ">z position in chunk coordinates</param>
-	/// <param name="resolution">the number of steps in the side of a single chunk</param>
-	/// <param name="size">physical size of the chunk</param>
-	/// <param name="sampleFunction">a sample function which, when passed a point in space, returns whether it is considered "filled"</param>
-	public void Initialize (int chunkX, int chunkY, int chunkZ, int resolution, float size, Func<Vector3,bool> sampleFunction) {
-		this.resolution = resolution;
-		this.size = size;
-		sampleFunc = sampleFunction;
-		offset = new Vector3(chunkX,chunkY,chunkZ) * size;
-		centerPos = transform.position + Vector3.one * size * 0.5f;
-
-		GetComponent<MeshFilter>().mesh = mesh = new Mesh();
-		mesh.name = "jerry";
-
-		stepSize = size / resolution;
-
-		//GenerateMesh();
-    }
-
-	public void March(Action<MeshData> callback) {
+	public void March(int resolution) {
 		List<Vector3> v = new List<Vector3>();
 		List<int> t = new List<int>();
 		for(int y = 0; y < resolution; y++)
 			for(int z = 0; z < resolution; z++)
 				for(int x = 0; x < resolution; x++) {
-					march(x,y,z,v,t);
+					//march(x,y,z,v,t);
 				}
-		callback(new MeshData(v,t));
 	}
-
-	public void Apply(MeshData data) {
-		mesh.vertices = data.vertices;
-		mesh.triangles = data.triangles;
-		mesh.RecalculateNormals();
-		GetComponent<MeshCollider>().sharedMesh = mesh;
-	}
-
-	private void march (float x,float y,float z, List<Vector3> v, List<int> t) {
-		Vector3 position = new Vector3(x,y,z);
-		bool[] cornerValues = new bool[8];
-		int flagIndex = 0;
-		Vector3[] edgeVertices = new Vector3[12];
-
-		for (int i = 0; i < 8; i ++) {
-			cornerValues[i] = sampleFunc.Invoke((position + Lookup.VertexOffset[i]) * stepSize + offset);
-		}
-		for (int f = 0; f < 8; f++) {
-			Vector3 corner = (position + Lookup.VertexOffset[f]) * stepSize;
-            if(cornerValues[f] ||
-				(((int)corner.x == 0	&& closeSides[2]) ||
-				((int)corner.y == 0		&& closeSides[0]) ||
-				((int)corner.z == 0		&& closeSides[4]) ||
-				((int)corner.x == size	&& closeSides[3]) ||
-				((int)corner.y == size	&& closeSides[1]) ||
-				((int)corner.z == size	&& closeSides[5]))) {
-				flagIndex |= 1 << f;
-			}
-		}
-
-		int edgeFlag = Lookup.CubeEdgeFlags[flagIndex];
-		if (edgeFlag == 0) {
-			return;
-		}
-		for (int edge = 0; edge < 12; edge++) {
-			if ((edgeFlag & (1 << edge)) != 0) {
-				edgeVertices[edge] = (new Vector3(x,y,z) + Lookup.VertexOffset[Lookup.EdgeConnection[edge][0]] + 0.5f * Lookup.EdgeDirection[edge]) * stepSize;
-			}
-		}
-		int vertexCount = v.Count;
-		for (int ti = 0; ti < 5; ti++) {
-			if (Lookup.TriangleConnectionTable[flagIndex][3*ti] < 0) {
-				break;
-			}
-			for (int corner = 0; corner < 3; corner++) {
-				int vertex = Lookup.TriangleConnectionTable[flagIndex][3 * ti + corner];
-				v.Add(edgeVertices[vertex]);
-				t.Add(v.Count - 1);
-            }
-		}
-	}
-
-	public struct Lookup {
-		//VertexOffset lists the positions, relative to vertex0, of each of the 8 vertices of a cube
-		public static readonly Vector3[] VertexOffset = new Vector3[8] {
+}
+public struct Lookup {
+	//VertexOffset lists the positions, relative to vertex0, of each of the 8 vertices of a cube
+	public static readonly Vector3[] VertexOffset = new Vector3[8] {
 			new Vector3(0.0f,0.0f,0.0f),new Vector3(1.0f,0.0f,0.0f),new Vector3(1.0f,1.0f,0.0f),new Vector3(0.0f,1.0f,0.0f),
 			new Vector3(0.0f,0.0f,1.0f),new Vector3(1.0f,0.0f,1.0f),new Vector3(1.0f,1.0f,1.0f),new Vector3(0.0f,1.0f,1.0f)
 		};
 
-		//EdgeConnection lists the index of the endpoint vertices for each of the 12 edges of the cube
-		public static readonly int[][] EdgeConnection = new int[12][] {
+	//EdgeConnection lists the index of the endpoint vertices for each of the 12 edges of the cube
+	public static readonly int[][] EdgeConnection = new int[12][] {
 			new []{0,1}, new []{1,2}, new []{2,3}, new []{3,0},
 			new []{4,5}, new []{5,6}, new []{6,7}, new []{7,4},
 			new []{0,4}, new []{1,5}, new []{2,6}, new []{3,7}
 		};
 
-		//EdgeDirection lists the direction vector (vertex1-vertex0) for each edge in the cube
-		public static readonly Vector3[] EdgeDirection = new Vector3[12] {
+	//EdgeDirection lists the direction vector (vertex1-vertex0) for each edge in the cube
+	public static readonly Vector3[] EdgeDirection = new Vector3[12] {
 			new Vector3(1.0f,0.0f,0.0f),new Vector3(0.0f,1.0f,0.0f),new Vector3(-1.0f,0.0f,0.0f),new Vector3(0.0f,-1.0f,0.0f),
 			new Vector3(1.0f,0.0f,0.0f),new Vector3(0.0f,1.0f,0.0f),new Vector3(-1.0f,0.0f,0.0f),new Vector3(0.0f,-1.0f,0.0f),
 			new Vector3(0.0f,0.0f,1.0f),new Vector3(0.0f,0.0f,1.0f),new Vector3(0.0f,0.0f,1.0f),new Vector3(0.0f,0.0f,1.0f)
 		};
 
-		public static readonly int[] CubeEdgeFlags = new int[256] {
+	public static readonly int[] CubeEdgeFlags = new int[256] {
 			0x000, 0x109, 0x203, 0x30a, 0x406, 0x50f, 0x605, 0x70c, 0x80c, 0x905, 0xa0f, 0xb06, 0xc0a, 0xd03, 0xe09, 0xf00,
 			0x190, 0x099, 0x393, 0x29a, 0x596, 0x49f, 0x795, 0x69c, 0x99c, 0x895, 0xb9f, 0xa96, 0xd9a, 0xc93, 0xf99, 0xe90,
 			0x230, 0x339, 0x033, 0x13a, 0x636, 0x73f, 0x435, 0x53c, 0xa3c, 0xb35, 0x83f, 0x936, 0xe3a, 0xf33, 0xc39, 0xd30,
@@ -154,7 +60,7 @@ public class Chunk : MonoBehaviour {
 			0xf00, 0xe09, 0xd03, 0xc0a, 0xb06, 0xa0f, 0x905, 0x80c, 0x70c, 0x605, 0x50f, 0x406, 0x30a, 0x203, 0x109, 0x000
 		};
 
-		public static readonly int[][] TriangleConnectionTable = new int[256][] {
+	public static readonly int[][] TriangleConnectionTable = new int[256][] {
 			new []{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
 			new []{0, 8, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
 			new []{0, 1, 9, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
@@ -412,5 +318,4 @@ public class Chunk : MonoBehaviour {
 			new []{0, 3, 8, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
 			new []{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}
 		};
-	}
 }

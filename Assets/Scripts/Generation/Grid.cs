@@ -1,4 +1,7 @@
 ﻿using System.Collections;
+using System;
+using System.Linq;
+using System.Threading;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -17,30 +20,41 @@ public class Grid : MonoBehaviour {
 	public bool Infinite = false;
 	public int ViewDistance = 3;
 
+	public Transform Observer;
+
 	private Noise noise;
+
+	private List<MeshRequest> requests = new List<MeshRequest>();
 
 	void Awake () {
 		instance = this;
 		chunks = new Dictionary<Vector3,Chunk>();
-		//chunks = new Chunk[Width, Height, Width];
-		noise = new Noise(System.DateTime.Now.Ticks.ToString().GetHashCode());
-		//StartCoroutine(Generate());
+		noise = new Noise(DateTime.Now.Ticks.ToString().GetHashCode());
+
+		if(Observer == null)
+			Observer = transform;
 	}
 
-	IEnumerator Generate() {
-		for(int y = 0; y < Height; y++) { 
-			for(int z = 0; z < Width; z++) {
-				for(int x = 0; x < Width; x++) {
-					generateChunk(x,y,z);
-				}
+	public void RequestMeshData(Chunk chunk, Action<MeshData> callback) {
+		requests.Add(new MeshRequest(chunk, callback));
+	}
+
+	private void Update() {
+		if (requests.Count > 0) {
+			MeshRequest request = requests.OrderBy(x => Vector3.SqrMagnitude(x.chunk.centerPos - Observer.transform.position)).First();
+			requests.Remove(request);
+
+			lock (requests) {
+				ThreadStart thread = delegate {
+					request.chunk.March(request.callback);
+				};
+				thread.Invoke();
 			}
 		}
-		yield return null;
 	}
 
 	public Vector3 worldToChunkCoordinates (Vector3 worldPos) {
 		Vector3 pos = worldPos / ChunkSize;
-		//print(ChunkSize);
 		return new Vector3(
 			Mathf.FloorToInt(pos.x),
 			Mathf.FloorToInt(pos.y),
@@ -107,9 +121,38 @@ public class Grid : MonoBehaviour {
 			c.closeSides = close;
 
 			c.Initialize(x,y,z,ChunkResolution,ChunkSize,noise.Evaluate);
+			RequestMeshData(c,c.Apply);
 			chunks.Add(new Vector3(x,y,z),c);
 			return c;
 		}
 		return null;
+	}
+}
+
+public struct MeshRequest {
+	public Chunk chunk;
+	public Action<MeshData> callback;
+
+	public MeshRequest(Chunk chunk, Action<MeshData> callback) {
+		this.chunk = chunk;
+		this.callback = callback;
+	}
+}
+
+public struct MeshData {
+	public Vector3[] vertices;
+	public int[] triangles;
+
+	public MeshData(List<Vector3> v,List<int> t) {
+		vertices = v.ToArray();
+		triangles = t.ToArray();
+	}
+
+	public Mesh CreateMesh() {
+		Mesh mesh = new Mesh();
+		mesh.vertices = vertices;
+		mesh.triangles = triangles;
+		mesh.RecalculateNormals();
+		return mesh;
 	}
 }
